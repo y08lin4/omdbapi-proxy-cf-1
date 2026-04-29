@@ -501,3 +501,13 @@ go run .\tools\loadtest.go -base https://omdbapi.ailinyu.de -key YOUR_CLIENT_KEY
 ```
 
 结果会输出总耗时、RPS、成功/失败数、状态码分布，以及 `avg/p50/p90/p95/p99` 延迟。
+
+### 交互式启动器
+
+如果不想先设置 `$env:OMDB_CLIENT_KEY`，可以使用交互式启动器，它会让你输入 `CLIENT_KEY`、总请求数、并发数、请求模式等参数：
+
+```powershell
+go run .\tools\loadtest_launcher.go
+```
+
+启动器会在执行前打印即将运行的命令，并自动把 key 打码显示。
