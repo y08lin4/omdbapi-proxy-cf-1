@@ -442,3 +442,62 @@ Go 版当前是内存统计，进程重启后清零。Cloudflare Worker 版如�
 ## 许可证
 
 本项目使用 MIT License，见 [LICENSE](LICENSE)。
+
+## 并发压测工具
+
+仓库内置了一个无第三方依赖的 Go 压测脚本：`tools/loadtest.go`，用于验证接口在多并发下是否正常返回、延迟是否稳定、状态码是否异常。
+
+> 注意：不要把真实 `CLIENT_KEY` 写进命令历史或提交到仓库。推荐临时设置环境变量。
+
+### 基础用法
+
+PowerShell：
+
+```powershell
+$env:OMDB_CLIENT_KEY="你的CLIENT_KEY"
+go run .\tools\loadtest.go -base https://omdbapi.ailinyu.de -n 200 -c 20 -mode title -q Inception
+```
+
+参数说明：
+
+- `-n`：总请求数。
+- `-c`：并发数。
+- `-mode`：请求模式，支持 `title`、`search`、`id`、`poster`、`custom`。
+- `-q`：标题或搜索关键词，例如 `Inception`、`Batman`。
+- `-id`：IMDb ID，例如 `tt1375666`。
+- `-timeout`：单请求超时时间，默认 `15s`。
+- `-json`：输出 JSON 汇总，方便保存和后续分析。
+
+### 示例
+
+标题查询压测：
+
+```powershell
+go run .\tools\loadtest.go -base https://omdbapi.ailinyu.de -key YOUR_CLIENT_KEY -n 100 -c 10 -mode title -q Inception
+```
+
+搜索接口压测：
+
+```powershell
+go run .\tools\loadtest.go -base https://omdbapi.ailinyu.de -key YOUR_CLIENT_KEY -n 200 -c 20 -mode search -q Batman
+```
+
+IMDb ID 查询压测：
+
+```powershell
+go run .\tools\loadtest.go -base https://omdbapi.ailinyu.de -key YOUR_CLIENT_KEY -n 100 -c 10 -mode id -id tt1375666
+```
+
+海报接口压测：
+
+```powershell
+go run .\tools\loadtest.go -base https://omdbapi.ailinyu.de -key YOUR_CLIENT_KEY -n 100 -c 10 -mode poster -id tt1375666
+```
+
+自定义路径压测：
+
+```powershell
+go run .\tools\loadtest.go -base https://omdbapi.ailinyu.de -key YOUR_CLIENT_KEY -n 100 -c 10 -mode custom -path "/?t=Inception&plot=full"
+```
+
+结果会输出总耗时、RPS、成功/失败数、状态码分布，以及 `avg/p50/p90/p95/p99` 延迟。
