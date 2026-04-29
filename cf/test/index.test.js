@@ -153,7 +153,7 @@ test("KV 持久化统计今日和总请求", async () => {
     res.end(JSON.stringify({ Response: "True", Title: "Inception" }));
   });
   const base = await listen(upstream);
-  const env = testEnv(base, { OMDB_KEYS: "only-good", STATS_KV: new MemoryKV() });
+  const env = testEnv(base, { OMDB_KEYS: "only-good", STATS_KV: new MemoryKV(), KV_STATS: "true" });
   try {
     await worker.fetch(new Request("https://proxy.test/?apikey=client-good&t=Inception"), env);
     await worker.fetch(new Request("https://proxy.test/?apikey=client-good&s=Batman"), env);
@@ -174,7 +174,7 @@ test("KV 统计读取时修正总数小于今日数的旧数据", async () => {
   await kv.put("requests:total", "32");
   await kv.put(`requests:day:${day}`, "42");
 
-  const response = await worker.fetch(new Request("https://proxy.test/metrics"), testEnv("https://upstream.test/", { STATS_KV: kv }));
+  const response = await worker.fetch(new Request("https://proxy.test/metrics"), testEnv("https://upstream.test/", { STATS_KV: kv, KV_STATS: "true" }));
   assert.equal(response.status, 200);
   const json = await response.json();
   assert.equal(json.requests.today, 42);
@@ -188,7 +188,7 @@ test("KV 统计失败不影响正常代理请求", async () => {
     res.end(JSON.stringify({ Response: "True", Title: "Inception" }));
   });
   const base = await listen(upstream);
-  const env = testEnv(base, { OMDB_KEYS: "only-good", STATS_KV: new FailingKV() });
+  const env = testEnv(base, { OMDB_KEYS: "only-good", STATS_KV: new FailingKV(), KV_STATS: "true" });
   try {
     const response = await worker.fetch(new Request("https://proxy.test/?apikey=client-good&t=Inception"), env, {
       waitUntil(promise) {

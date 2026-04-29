@@ -4,6 +4,7 @@ const DEFAULT_OMDB_API_URL = "https://www.omdbapi.com/";
 const DEFAULT_OMDB_POSTER_URL = "https://img.omdbapi.com/";
 const DEFAULT_HTTP_TIMEOUT_MS = 10_000;
 const DEFAULT_KEY_COOLDOWN_MS = 5 * 60 * 1000;
+const DEFAULT_KEYS_CACHE_TTL_MS = 60_000;
 const RETRYABLE_STATUS = new Set([408, 425, 429, 500, 502, 503, 504]);
 const HOP_BY_HOP_HEADERS = new Set([
   "connection",
@@ -141,12 +142,21 @@ async function proxyRequest(request, env, state, upstreamBaseURL, ctx) {
 
 async function getRuntimeState(env, forceReload = false) {
   const cooldownMs = durationToMs(env.KEY_COOLDOWN || env.KEY_COOLDOWN_MS, DEFAULT_KEY_COOLDOWN_MS);
+  const cacheSignature = runtimeCacheSignature(env, cooldownMs);
+  if (!forceReload && runtimeState && runtimeState.cacheSignature === cacheSignature && runtimeState.kvRef === env.STATS_KV && !runtimeState.keysCacheExpired(env)) {
+    return runtimeState;
+  }
+
   const loaded = await loadOMDBKeysRaw(env);
   const omdbKeysRaw = loaded.value;
   const signature = stateSignature(env, cooldownMs, omdbKeysRaw);
 
   if (forceReload || !runtimeState || runtimeState.signature !== signature) {
-    runtimeState = new RuntimeState(parseKeys(omdbKeysRaw), parseKeys(env.CLIENT_KEYS || ""), cooldownMs, signature, loaded.source);
+    runtimeState = new RuntimeState(parseKeys(omdbKeysRaw), parseKeys(env.CLIENT_KEYS || ""), cooldownMs, signature, loaded.source, Date.now(), cacheSignature, env.STATS_KV);
+  } else {
+    runtimeState.loadedAt = Date.now();
+    runtimeState.cacheSignature = cacheSignature;
+    runtimeState.kvRef = env.STATS_KV;
   }
   return runtimeState;
 }
@@ -163,13 +173,25 @@ function stateSignature(env, cooldownMs, omdbKeysRaw) {
   return JSON.stringify([omdbKeysRaw || "", env.CLIENT_KEYS || "", cooldownMs]);
 }
 
+function runtimeCacheSignature(env, cooldownMs) {
+  return JSON.stringify([env.CLIENT_KEYS || "", env.OMDB_KEYS || "", cooldownMs, env.KEYS_CACHE_TTL || env.KEYS_CACHE_TTL_MS || ""]);
+}
+
 export class RuntimeState {
-  constructor(omdbKeys, clientKeys, cooldownMs, signature = "", keySource = "env") {
+  constructor(omdbKeys, clientKeys, cooldownMs, signature = "", keySource = "env", loadedAt = Date.now(), cacheSignature = "", kvRef = undefined) {
     this.signature = signature;
+    this.cacheSignature = cacheSignature;
+    this.kvRef = kvRef;
     this.keySource = keySource;
+    this.loadedAt = loadedAt;
     this.omdbKeys = new KeyPool(omdbKeys, cooldownMs);
     this.clients = new Set(clientKeys);
     this.stats = new RequestStats();
+  }
+
+  keysCacheExpired(env) {
+    const ttl = durationToMs(env.KEYS_CACHE_TTL || env.KEYS_CACHE_TTL_MS, DEFAULT_KEYS_CACHE_TTL_MS);
+    return ttl <= 0 || Date.now() - this.loadedAt > ttl;
   }
 }
 
@@ -177,7 +199,7 @@ export class RuntimeState {
 
 async function recordRequestStats(env, state) {
   state.stats.inc();
-  if (!env.STATS_KV) return state.stats.snapshot();
+  if (!kvStatsEnabled(env) || !env.STATS_KV) return { ...state.stats.snapshot(), storage: "memory" };
 
   const now = new Date();
   const day = dayString(now);
@@ -203,7 +225,7 @@ async function recordRequestStats(env, state) {
 }
 
 async function getRequestStats(env, state) {
-  if (!env.STATS_KV) {
+  if (!kvStatsEnabled(env) || !env.STATS_KV) {
     return { ...state.stats.snapshot(), storage: "memory" };
   }
 
@@ -230,6 +252,10 @@ async function getRequestStats(env, state) {
     lastRequest: lastRequest || undefined,
     storage: "kv"
   };
+}
+
+function kvStatsEnabled(env) {
+  return String(env.KV_STATS || "").trim().toLowerCase() === "true";
 }
 
 async function kvIncrement(kv, key) {

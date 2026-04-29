@@ -513,3 +513,26 @@ go run .\tools\loadtest_launcher.go
 启动器会在执行前打印即将运行的命令，并自动把 key 打码显示。
 
 > 提示：`loadtest_launcher.go` 支持在仓库根目录或 `tools` 目录内运行；它会自动寻找 `loadtest.go`。
+
+## KV 免费额度说明
+
+Cloudflare Workers KV 免费额度的 `put` 次数较少，不适合对每个 API 请求都写入统计。当前 Worker 默认：
+
+- 继续使用 `STATS_KV` 读取 `omdb:keys`，用于保存大体积 OMDb key 池。
+- 默认关闭 KV 持久化请求统计：`KV_STATS = "false"`。
+- `/metrics` 仍会返回统计，但默认是 Worker 内存统计，重启或切换边缘 isolate 后可能清零。
+- `omdb:keys` 会缓存 60 秒：`KEYS_CACHE_TTL = "60s"`，避免每个请求都读取 KV。
+
+如果你升级了 Cloudflare 付费计划，或者确认 KV 写入额度足够，可以把 `wrangler.toml` 里的：
+
+```toml
+KV_STATS = "false"
+```
+
+改成：
+
+```toml
+KV_STATS = "true"
+```
+
+开启后会把 `requests:total`、`requests:day:YYYY-MM-DD` 等统计写入 KV。高并发下仍建议用 Durable Objects 或 D1 做更完整的数据看板。
