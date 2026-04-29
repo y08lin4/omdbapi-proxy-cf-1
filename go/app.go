@@ -20,6 +20,9 @@ import (
 //go:embed static/index.html
 var docsHTML string
 
+//go:embed static/web.html
+var webHTML string
+
 var hopByHopHeaders = map[string]struct{}{
 	"connection":          {},
 	"keep-alive":          {},
@@ -142,6 +145,8 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		a.handleProxy(w, r, a.posterURL)
 	case "/docs", "/index.html":
 		a.handleDocs(w, r)
+	case "/web":
+		a.handleWeb(w, r)
 	case "/health":
 		a.handleHealth(w, r)
 	case "/metrics":
@@ -151,7 +156,7 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "/admin/reload":
 		a.handleAdminReload(w, r)
 	default:
-		writeOMDBError(w, r, http.StatusNotFound, "Not found. Use /, /api, /poster, /docs, /health, /metrics, /admin/stats or /admin/reload.")
+		writeOMDBError(w, r, http.StatusNotFound, "Not found. Use /, /api, /poster, /docs, /web, /health, /metrics, /admin/stats or /admin/reload.")
 	}
 }
 
@@ -164,6 +169,14 @@ func (a *App) handleOptions(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleDocs(w http.ResponseWriter, r *http.Request) {
+	a.handleHTML(w, r, docsHTML)
+}
+
+func (a *App) handleWeb(w http.ResponseWriter, r *http.Request) {
+	a.handleHTML(w, r, webHTML)
+}
+
+func (a *App) handleHTML(w http.ResponseWriter, r *http.Request, html string) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		writeOMDBError(w, r, http.StatusMethodNotAllowed, "Method not allowed.")
 		return
@@ -172,7 +185,7 @@ func (a *App) handleDocs(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	if r.Method != http.MethodHead {
-		_, _ = io.WriteString(w, docsHTML)
+		_, _ = io.WriteString(w, html)
 	}
 }
 

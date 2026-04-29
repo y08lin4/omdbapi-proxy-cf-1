@@ -1,4 +1,5 @@
 ﻿import { DOCS_HTML } from "./docs.js";
+import { WEB_HTML } from "./web.js";
 const DEFAULT_OMDB_API_URL = "https://www.omdbapi.com/";
 const DEFAULT_OMDB_POSTER_URL = "https://img.omdbapi.com/";
 const DEFAULT_HTTP_TIMEOUT_MS = 10_000;
@@ -47,6 +48,8 @@ export async function handleRequest(request, env = {}, ctx = {}) {
       case "/docs":
       case "/index.html":
         return docsResponse(env, request);
+      case "/web":
+        return htmlResponse(env, request, WEB_HTML);
       case "/health":
         return jsonResponse(env, request, 200, {
           ok: state.omdbKeys.size() > 0 && state.clients.size > 0,
@@ -64,7 +67,7 @@ export async function handleRequest(request, env = {}, ctx = {}) {
       case "/admin/reload":
         return adminReload(request, env);
       default:
-        return omdbErrorResponse(env, request, 404, "Not found. Use /, /api, /poster, /docs, /health, /metrics, /admin/stats or /admin/reload.");
+        return omdbErrorResponse(env, request, 404, "Not found. Use /, /api, /poster, /docs, /web, /health, /metrics, /admin/stats or /admin/reload.");
     }
   } catch (error) {
     console.error("worker error", error && (error.stack || error.message || error));
@@ -492,12 +495,16 @@ function jsonResponse(env, request, status, payload) {
 }
 
 function docsResponse(env, request) {
+  return htmlResponse(env, request, DOCS_HTML);
+}
+
+function htmlResponse(env, request, html) {
   if (request.method !== "GET" && request.method !== "HEAD") {
     return omdbErrorResponse(env, request, 405, "Method not allowed.");
   }
   const headers = new Headers({ "Content-Type": "text/html; charset=utf-8" });
   addCORS(headers, env, request);
-  return new Response(request.method === "HEAD" ? null : DOCS_HTML, { status: 200, headers });
+  return new Response(request.method === "HEAD" ? null : html, { status: 200, headers });
 }
 
 function optionsResponse(env, request) {
