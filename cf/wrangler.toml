@@ -12,10 +12,13 @@ KEY_COOLDOWN = "5m"
 MAX_ATTEMPTS_PER_REQUEST = "0"
 CORS_ORIGIN = "*"
 
-# 可选：绑定 Cloudflare KV 后，/metrics 的今日请求数和总请求数会持久化。
-# 先创建 KV namespace，再取消注释并填入真实 id。
+# 可选：绑定 Cloudflare KV 后，/metrics 的今日请求数和总请求数会持久化，
+# 同时可在 KV 的 omdb:keys 中保存大体积 OMDb key 池。
+# 注意：wrangler.toml 里必须填写 KV Namespace ID，不能只写控制台显示名称。
+# 你控制台里的绑定名称是 STATS_KV，KV 命名空间显示名称是 omdbapi-proxy。
+# 在 Cloudflare 控制台打开该 KV 命名空间，复制 Namespace ID 后取消注释下面配置；
+# 之后 GitHub 自动部署会按配置自动绑定，不需要每次重新手动绑定。
 # [[kv_namespaces]]
 # binding = "STATS_KV"
-# id = "你的生产 KV namespace id"
-# preview_id = "你的预览 KV namespace id"
-
+# id = "填入 omdbapi-proxy 这个 KV 的 Namespace ID"
+# preview_id = "可选：填入预览 KV 的 Namespace ID；没有可先与 id 相同"
