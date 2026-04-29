@@ -42,9 +42,9 @@ export async function handleRequest(request, env = {}, ctx = {}) {
     switch (pathname) {
       case "/":
       case "/api":
-        return proxyRequest(request, env, state, env.OMDB_API_URL || DEFAULT_OMDB_API_URL);
+        return proxyRequest(request, env, state, env.OMDB_API_URL || DEFAULT_OMDB_API_URL, ctx);
       case "/poster":
-        return proxyRequest(request, env, state, env.OMDB_POSTER_URL || DEFAULT_OMDB_POSTER_URL);
+        return proxyRequest(request, env, state, env.OMDB_POSTER_URL || DEFAULT_OMDB_POSTER_URL, ctx);
       case "/docs":
       case "/index.html":
         return docsResponse(env, request);
@@ -75,7 +75,7 @@ export async function handleRequest(request, env = {}, ctx = {}) {
   }
 }
 
-async function proxyRequest(request, env, state, upstreamBaseURL) {
+async function proxyRequest(request, env, state, upstreamBaseURL, ctx) {
   if (request.method !== "GET" && request.method !== "HEAD") {
     return omdbErrorResponse(env, request, 405, "Method not allowed. OMDb-compatible requests use GET.");
   }
@@ -85,7 +85,15 @@ async function proxyRequest(request, env, state, upstreamBaseURL) {
     return omdbErrorResponse(env, request, 401, "Invalid API key.");
   }
 
-  await recordRequestStats(env, state);
+  const statsPromise = recordRequestStats(env, state).catch((error) => {
+    console.warn("record request stats failed", error && (error.stack || error.message || error));
+    return state.stats.snapshot();
+  });
+  if (ctx && typeof ctx.waitUntil === "function") {
+    ctx.waitUntil(statsPromise);
+  } else {
+    await statsPromise;
+  }
 
   if (state.omdbKeys.size() === 0) {
     return omdbErrorResponse(env, request, 503, "No upstream OMDb API keys configured.");

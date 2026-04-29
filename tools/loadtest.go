@@ -111,7 +111,7 @@ func main() {
 		}
 	}
 
-	summary := summarize(collected, time.Since(start), *base, *mode, *total, *concurrency)
+	summary := summarize(collected, time.Since(start), *base, *mode, *total, *concurrency, *key)
 	if *jsonOut {
 		_ = json.NewEncoder(os.Stdout).Encode(summary)
 		return
@@ -210,7 +210,7 @@ type summary struct {
 	Errors      map[string]int     `json:"errors"`
 }
 
-func summarize(results []result, duration time.Duration, base, mode string, total, concurrency int) summary {
+func summarize(results []result, duration time.Duration, base, mode string, total, concurrency int, key string) summary {
 	latencies := make([]time.Duration, 0, len(results))
 	statuses := map[string]int{}
 	errors := map[string]int{}
@@ -221,7 +221,7 @@ func summarize(results []result, duration time.Duration, base, mode string, tota
 			statuses[fmt.Sprintf("%d", r.status)]++
 		}
 		if r.err != "" {
-			errors[shortErr(r.err)]++
+			errors[shortErr(maskSecret(r.err, key))]++
 		}
 		if r.ok {
 			ok++
@@ -301,6 +301,17 @@ func shortErr(s string) string {
 		return s[:120] + "..."
 	}
 	return s
+}
+
+func maskSecret(s, secret string) string {
+	if secret == "" {
+		return s
+	}
+	masked := secret
+	if len(secret) > 4 {
+		masked = secret[:2] + strings.Repeat("*", len(secret)-4) + secret[len(secret)-2:]
+	}
+	return strings.ReplaceAll(s, secret, masked)
 }
 
 func ensureSlash(s string) string {

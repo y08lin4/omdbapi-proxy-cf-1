@@ -28,6 +28,16 @@ class MemoryKV {
   }
 }
 
+class FailingKV extends MemoryKV {
+  async get(key) {
+    if (key === "omdb:keys") return null;
+    throw new Error("kv unavailable");
+  }
+  async put() {
+    throw new Error("kv unavailable");
+  }
+}
+
 function testEnv(baseURL, extra = {}) {
   return {
     CLIENT_KEYS: "client-good",
@@ -170,6 +180,27 @@ test("KV 统计读取时修正总数小于今日数的旧数据", async () => {
   assert.equal(json.requests.today, 42);
   assert.equal(json.requests.total, 42);
   assert.equal(await kv.get("requests:total"), "42");
+});
+
+test("KV 统计失败不影响正常代理请求", async () => {
+  const upstream = http.createServer((req, res) => {
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify({ Response: "True", Title: "Inception" }));
+  });
+  const base = await listen(upstream);
+  const env = testEnv(base, { OMDB_KEYS: "only-good", STATS_KV: new FailingKV() });
+  try {
+    const response = await worker.fetch(new Request("https://proxy.test/?apikey=client-good&t=Inception"), env, {
+      waitUntil(promise) {
+        return promise.catch(() => {});
+      }
+    });
+    assert.equal(response.status, 200);
+    const json = await response.json();
+    assert.equal(json.Response, "True");
+  } finally {
+    await close(upstream);
+  }
 });
 
 
