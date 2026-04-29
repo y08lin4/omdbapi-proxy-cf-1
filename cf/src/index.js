@@ -175,13 +175,17 @@ async function recordRequestStats(env, state) {
   const day = dayString(now);
   const total = await kvIncrement(env.STATS_KV, "requests:total");
   const today = await kvIncrement(env.STATS_KV, `requests:day:${day}`);
+  const normalizedTotal = Math.max(total, today);
+  if (normalizedTotal !== total) {
+    await env.STATS_KV.put("requests:total", String(normalizedTotal));
+  }
   await env.STATS_KV.put("requests:day:current", day);
   await env.STATS_KV.put("requests:lastRequest", now.toISOString());
   const startedAt = await env.STATS_KV.get("requests:startedAt");
   if (!startedAt) await env.STATS_KV.put("requests:startedAt", state.stats.startedAt);
 
   return {
-    total,
+    total: normalizedTotal,
     today,
     day,
     startedAt: startedAt || state.stats.startedAt,
@@ -203,9 +207,16 @@ async function getRequestStats(env, state) {
     env.STATS_KV.get("requests:lastRequest")
   ]);
 
+  const total = Number.parseInt(totalRaw || "0", 10) || 0;
+  const today = Number.parseInt(todayRaw || "0", 10) || 0;
+  const normalizedTotal = Math.max(total, today);
+  if (normalizedTotal !== total) {
+    await env.STATS_KV.put("requests:total", String(normalizedTotal));
+  }
+
   return {
-    total: Number.parseInt(totalRaw || "0", 10) || 0,
-    today: Number.parseInt(todayRaw || "0", 10) || 0,
+    total: normalizedTotal,
+    today,
     day,
     startedAt: startedAt || state.stats.startedAt,
     lastRequest: lastRequest || undefined,
@@ -631,4 +642,3 @@ function escapeXML(value) {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&apos;");
 }
-

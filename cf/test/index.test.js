@@ -158,6 +158,20 @@ test("KV 持久化统计今日和总请求", async () => {
   }
 });
 
+test("KV 统计读取时修正总数小于今日数的旧数据", async () => {
+  const kv = new MemoryKV();
+  const day = new Date().toISOString().slice(0, 10);
+  await kv.put("requests:total", "32");
+  await kv.put(`requests:day:${day}`, "42");
+
+  const response = await worker.fetch(new Request("https://proxy.test/metrics"), testEnv("https://upstream.test/", { STATS_KV: kv }));
+  assert.equal(response.status, 200);
+  const json = await response.json();
+  assert.equal(json.requests.today, 42);
+  assert.equal(json.requests.total, 42);
+  assert.equal(await kv.get("requests:total"), "42");
+});
+
 
 
 test("从 KV 中读取 OMDb key 池", async () => {
