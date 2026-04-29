@@ -20,7 +20,7 @@ CORS_ORIGIN = "*"
 # 你控制台里的绑定名称是 STATS_KV，KV 命名空间显示名称是 omdbapi-proxy。
 # 在 Cloudflare 控制台打开该 KV 命名空间，复制 Namespace ID 后取消注释下面配置；
 # 之后 GitHub 自动部署会按配置自动绑定，不需要每次重新手动绑定。
-# [[kv_namespaces]]
-# binding = "STATS_KV"
-# id = "填入 omdbapi-proxy 这个 KV 的 Namespace ID"
-# preview_id = "可选：填入预览 KV 的 Namespace ID；没有可先与 id 相同"
+[[kv_namespaces]]
+binding = "STATS_KV"
+id = "051717185a1940ab9fcac34b2a3e0c35"
+preview_id = "051717185a1940ab9fcac34b2a3e0c35"
