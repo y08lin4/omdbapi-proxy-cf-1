@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -43,8 +44,9 @@ func main() {
 	timeout := prompt(r, "单请求超时", "15s")
 	jsonOut := promptBool(r, "是否输出 JSON 汇总", false)
 	headerKey := promptBool(r, "是否用 X-API-Key 请求头传 key", false)
+	loadtestPath := resolveLoadtestPath()
 
-	args := []string{"run", ".\\tools\\loadtest.go",
+	args := []string{"run", loadtestPath,
 		"-base", base,
 		"-key", key,
 		"-n", strconv.Itoa(total),
@@ -87,6 +89,26 @@ func main() {
 		fmt.Fprintln(os.Stderr, "执行失败：", err)
 		os.Exit(1)
 	}
+}
+
+func resolveLoadtestPath() string {
+	candidates := []string{
+		filepath.Join("tools", "loadtest.go"),
+		"loadtest.go",
+		filepath.Join(".", "tools", "loadtest.go"),
+	}
+	for _, p := range candidates {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	if exe, err := os.Executable(); err == nil {
+		p := filepath.Join(filepath.Dir(exe), "loadtest.go")
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return filepath.Join("tools", "loadtest.go")
 }
 
 func prompt(r *bufio.Reader, label, def string) string {

@@ -511,3 +511,5 @@ go run .\tools\loadtest_launcher.go
 ```
 
 启动器会在执行前打印即将运行的命令，并自动把 key 打码显示。
+
+> 提示：`loadtest_launcher.go` 支持在仓库根目录或 `tools` 目录内运行；它会自动寻找 `loadtest.go`。
