@@ -10,7 +10,11 @@
     "deploy": "npx wrangler@latest deploy",
     "tail": "npx wrangler@latest tail",
     "kv:create": "npx wrangler@latest kv namespace create omdbapi_proxy_stats --binding STATS_KV --update-config",
-    "kv:create-preview": "npx wrangler@latest kv namespace create omdbapi_proxy_stats --preview --binding STATS_KV --update-config"
+    "kv:create-preview": "npx wrangler@latest kv namespace create omdbapi_proxy_stats --preview --binding STATS_KV --update-config",
+    "cf:d1:create": "npx wrangler@latest d1 create omdbapi_proxy_stats",
+    "cf:d1:migrate": "npx wrangler@latest d1 migrations apply omdbapi_proxy_stats --remote",
+    "d1:create": "npx wrangler@latest d1 create omdbapi_proxy_stats",
+    "d1:migrate": "npx wrangler@latest d1 migrations apply omdbapi_proxy_stats --remote"
   },
   "engines": {
     "node": ">=20"
@@ -33,6 +37,9 @@
       },
       "STATS_KV": {
         "description": "Optional KV namespace binding. When configured, /metrics request counters are persisted."
+      },
+      "STATS_DB": {
+        "description": "Optional D1 database binding for persistent aggregated request statistics."
       }
     }
   },

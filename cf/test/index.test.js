@@ -38,6 +38,71 @@ class FailingKV extends MemoryKV {
   }
 }
 
+class MemoryD1 {
+  constructor() {
+    this.daily = new Map();
+    this.hourly = new Map();
+  }
+  prepare(sql) {
+    return new MemoryD1Statement(this, sql);
+  }
+  async batch(statements) {
+    return Promise.all(statements.map((statement) => statement.run()));
+  }
+}
+
+class MemoryD1Statement {
+  constructor(db, sql) {
+    this.db = db;
+    this.sql = sql;
+    this.args = [];
+  }
+  bind(...args) {
+    this.args = args;
+    return this;
+  }
+  async run() {
+    if (this.sql.includes("daily_stats")) upsertStat(this.db.daily, this.args);
+    if (this.sql.includes("hourly_stats")) upsertStat(this.db.hourly, this.args);
+    return { success: true };
+  }
+  async first() {
+    if (this.sql.includes("WHERE day")) return this.db.daily.get(this.args[0]) || null;
+    if (this.sql.includes("SUM(total)")) return sumStats(this.db.daily);
+    return null;
+  }
+  async all() {
+    const map = this.sql.includes("hourly_stats") ? this.db.hourly : this.db.daily;
+    const keyName = this.sql.includes("hourly_stats") ? "hour" : "day";
+    const results = [...map.entries()]
+      .sort((a, b) => b[0].localeCompare(a[0]))
+      .slice(0, this.sql.includes("LIMIT 7") ? 7 : 24)
+      .map(([key, value]) => ({ [keyName]: key, ...value }));
+    return { results };
+  }
+}
+
+function upsertStat(map, args) {
+  const [key, success, failed, updatedAt] = args;
+  const old = map.get(key) || { total: 0, success: 0, failed: 0, updated_at: "" };
+  map.set(key, {
+    total: old.total + 1,
+    success: old.success + Number(success || 0),
+    failed: old.failed + Number(failed || 0),
+    updated_at: updatedAt
+  });
+}
+
+function sumStats(map) {
+  const total = { total: 0, success: 0, failed: 0 };
+  for (const value of map.values()) {
+    total.total += value.total;
+    total.success += value.success;
+    total.failed += value.failed;
+  }
+  return total;
+}
+
 function testEnv(baseURL, extra = {}) {
   return {
     CLIENT_KEYS: "client-good",
@@ -203,6 +268,43 @@ test("KV 统计失败不影响正常代理请求", async () => {
   }
 });
 
+test("D1 持久化统计总数、今日、成功率和失败率", async () => {
+  let calls = 0;
+  const upstream = http.createServer((req, res) => {
+    calls += 1;
+    res.setHeader("content-type", "application/json");
+    if (calls === 1) {
+      res.end(JSON.stringify({ Response: "True", Title: "Inception" }));
+    } else {
+      res.end(JSON.stringify({ Response: "False", Error: "Movie not found!" }));
+    }
+  });
+  const base = await listen(upstream);
+  const db = new MemoryD1();
+  const waitUntilTasks = [];
+  const ctx = { waitUntil(promise) { waitUntilTasks.push(promise); } };
+  const env = testEnv(base, { OMDB_KEYS: "only-good", STATS_DB: db });
+  try {
+    await worker.fetch(new Request("https://proxy.test/?apikey=client-good&t=Inception"), env, ctx);
+    await worker.fetch(new Request("https://proxy.test/?apikey=client-good&t=NoSuchMovie"), env, ctx);
+    await Promise.all(waitUntilTasks);
+    const response = await worker.fetch(new Request("https://proxy.test/metrics"), env);
+    assert.equal(response.status, 200);
+    const json = await response.json();
+    assert.equal(json.requests.storage, "d1");
+    assert.equal(json.requests.total, 2);
+    assert.equal(json.requests.today, 2);
+    assert.equal(json.requests.success, 1);
+    assert.equal(json.requests.failed, 1);
+    assert.equal(json.requests.successRate, 50);
+    assert.equal(json.requests.failureRate, 50);
+    assert.ok(Array.isArray(json.requests.hourly));
+    assert.ok(Array.isArray(json.requests.recent7Days));
+  } finally {
+    await close(upstream);
+  }
+});
+
 
 
 test("从 KV 中读取 OMDb key 池", async () => {
@@ -228,5 +330,3 @@ test("从 KV 中读取 OMDb key 池", async () => {
     await close(upstream);
   }
 });
-
-

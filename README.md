@@ -536,3 +536,59 @@ KV_STATS = "true"
 ```
 
 开启后会把 `requests:total`、`requests:day:YYYY-MM-DD` 等统计写入 KV。高并发下仍建议用 Durable Objects 或 D1 做更完整的数据看板。
+
+## D1 统计看板
+
+如果需要持久化统计，可以绑定 Cloudflare D1。D1 用于聚合统计，不影响主请求链路：每次 API 请求返回前后都会在 `ctx.waitUntil()` 后台写 D1；如果 D1 写入失败，只会丢失本次统计，不影响 OMDb 代理请求。
+
+当前 D1 统计字段包括：
+
+- 今日调用：当天 `daily_stats.total`
+- 总调用：所有 `daily_stats.total` 汇总
+- 每小时调用：最近 24 条 `hourly_stats`
+- 最近 7 天调用：最近 7 条 `daily_stats`
+- 成功率：`success / total`
+- 失败率：`failed / total`
+
+### 创建 D1
+
+```powershell
+npx wrangler@latest d1 create omdbapi_proxy_stats
+```
+
+创建后把输出里的 `database_id` 填入 `wrangler.toml`：
+
+```toml
+[[d1_databases]]
+binding = "STATS_DB"
+database_name = "omdbapi_proxy_stats"
+database_id = "你的 D1 database_id"
+```
+
+### 初始化表
+
+在项目根目录执行：
+
+```powershell
+npx wrangler@latest d1 execute omdbapi_proxy_stats --remote --file .\migrations\0001_stats.sql
+```
+
+或者使用脚本：
+
+```powershell
+npm run cf:d1:migrate
+```
+
+### 部署后验证
+
+```text
+https://你的域名/metrics
+```
+
+如果返回：
+
+```json
+"storage": "d1"
+```
+
+说明 D1 统计已启用。

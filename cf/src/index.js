@@ -86,18 +86,10 @@ async function proxyRequest(request, env, state, upstreamBaseURL, ctx) {
     return omdbErrorResponse(env, request, 401, "Invalid API key.");
   }
 
-  const statsPromise = recordRequestStats(env, state).catch((error) => {
-    console.warn("record request stats failed", error && (error.stack || error.message || error));
-    return state.stats.snapshot();
-  });
-  if (ctx && typeof ctx.waitUntil === "function") {
-    ctx.waitUntil(statsPromise);
-  } else {
-    await statsPromise;
-  }
-
   if (state.omdbKeys.size() === 0) {
-    return omdbErrorResponse(env, request, 503, "No upstream OMDb API keys configured.");
+    const response = omdbErrorResponse(env, request, 503, "No upstream OMDb API keys configured.");
+    scheduleStats(env, state, ctx, false);
+    return response;
   }
 
   let maxAttempts = Number.parseInt(env.MAX_ATTEMPTS_PER_REQUEST || "0", 10);
@@ -127,7 +119,10 @@ async function proxyRequest(request, env, state, upstreamBaseURL, ctx) {
 
       state.omdbKeys.reportSuccess(selected);
       state.omdbKeys.release(selected);
-      return upstreamResponse(env, request, upstream, body, selected, attempt);
+      const success = upstream.status >= 200 && upstream.status < 300 && !isOMDBFalse(body, upstream.headers.get("content-type") || "");
+      const response = upstreamResponse(env, request, upstream, body, selected, attempt);
+      scheduleStats(env, state, ctx, success);
+      return response;
     } catch (error) {
       const reason = error && error.name === "AbortError" ? "timeout" : "network_error";
       state.omdbKeys.reportFailure(selected, reason);
@@ -137,7 +132,9 @@ async function proxyRequest(request, env, state, upstreamBaseURL, ctx) {
   }
 
   if (attemptErrors.length) console.warn("all attempted OMDb keys failed", JSON.stringify(attemptErrors));
-  return omdbErrorResponse(env, request, 503, "All configured OMDb API keys failed or are cooling down.");
+  const response = omdbErrorResponse(env, request, 503, "All configured OMDb API keys failed or are cooling down.");
+  scheduleStats(env, state, ctx, false);
+  return response;
 }
 
 async function getRuntimeState(env, forceReload = false) {
@@ -197,8 +194,23 @@ export class RuntimeState {
 
 
 
-async function recordRequestStats(env, state) {
+function scheduleStats(env, state, ctx, success) {
+  const statsPromise = recordRequestStats(env, state, success).catch((error) => {
+    console.warn("record request stats failed", error && (error.stack || error.message || error));
+    return state.stats.snapshot();
+  });
+  if (ctx && typeof ctx.waitUntil === "function") {
+    ctx.waitUntil(statsPromise);
+  } else {
+    return statsPromise;
+  }
+}
+
+async function recordRequestStats(env, state, success = true) {
   state.stats.inc();
+  const tasks = [];
+  if (env.STATS_DB) tasks.push(recordD1Stats(env.STATS_DB, success));
+  if (tasks.length > 0) await Promise.allSettled(tasks);
   if (!kvStatsEnabled(env) || !env.STATS_KV) return { ...state.stats.snapshot(), storage: "memory" };
 
   const now = new Date();
@@ -225,8 +237,13 @@ async function recordRequestStats(env, state) {
 }
 
 async function getRequestStats(env, state) {
+  if (env.STATS_DB) {
+    const d1 = await getD1Stats(env.STATS_DB);
+    return { ...snapshotWithRates(state.stats.snapshot()), ...d1, storage: "d1" };
+  }
+
   if (!kvStatsEnabled(env) || !env.STATS_KV) {
-    return { ...state.stats.snapshot(), storage: "memory" };
+    return { ...snapshotWithRates(state.stats.snapshot()), storage: "memory" };
   }
 
   const day = dayString(new Date());
@@ -250,8 +267,74 @@ async function getRequestStats(env, state) {
     day,
     startedAt: startedAt || state.stats.startedAt,
     lastRequest: lastRequest || undefined,
-    storage: "kv"
+    storage: "kv",
+    success: normalizedTotal,
+    failed: 0,
+    successRate: normalizedTotal > 0 ? 100 : 0,
+    failureRate: 0
   };
+}
+
+async function recordD1Stats(db, success) {
+  const now = new Date();
+  const day = dayString(now);
+  const hour = hourString(now);
+  const ok = success ? 1 : 0;
+  const failed = success ? 0 : 1;
+  const iso = now.toISOString();
+  await db.batch([
+    db.prepare(`INSERT INTO daily_stats(day,total,success,failed,updated_at)
+      VALUES(?1,1,?2,?3,?4)
+      ON CONFLICT(day) DO UPDATE SET
+        total=total+1,
+        success=success+excluded.success,
+        failed=failed+excluded.failed,
+        updated_at=excluded.updated_at`).bind(day, ok, failed, iso),
+    db.prepare(`INSERT INTO hourly_stats(hour,total,success,failed,updated_at)
+      VALUES(?1,1,?2,?3,?4)
+      ON CONFLICT(hour) DO UPDATE SET
+        total=total+1,
+        success=success+excluded.success,
+        failed=failed+excluded.failed,
+        updated_at=excluded.updated_at`).bind(hour, ok, failed, iso)
+  ]);
+}
+
+async function getD1Stats(db) {
+  const now = new Date();
+  const day = dayString(now);
+  const today = await db.prepare("SELECT total, success, failed FROM daily_stats WHERE day = ?1").bind(day).first();
+  const total = await db.prepare("SELECT COALESCE(SUM(total),0) AS total, COALESCE(SUM(success),0) AS success, COALESCE(SUM(failed),0) AS failed FROM daily_stats").first();
+  const recent7Result = await db.prepare("SELECT day,total,success,failed FROM daily_stats ORDER BY day DESC LIMIT 7").all();
+  const hourlyResult = await db.prepare("SELECT hour,total,success,failed FROM hourly_stats ORDER BY hour DESC LIMIT 24").all();
+  const totalCount = Number(total?.total || 0);
+  const successCount = Number(total?.success || 0);
+  const failedCount = Number(total?.failed || 0);
+  return {
+    total: totalCount,
+    today: Number(today?.total || 0),
+    success: successCount,
+    failed: failedCount,
+    successRate: totalCount > 0 ? roundRate(successCount / totalCount) : 0,
+    failureRate: totalCount > 0 ? roundRate(failedCount / totalCount) : 0,
+    day,
+    hourly: (hourlyResult.results || []).reverse(),
+    recent7Days: (recent7Result.results || []).reverse()
+  };
+}
+
+function snapshotWithRates(snapshot) {
+  return {
+    ...snapshot,
+    success: snapshot.total,
+    failed: 0,
+    successRate: snapshot.total > 0 ? 100 : 0,
+    failureRate: 0
+  };
+}
+
+function roundRate(value) {
+  return Math.round(value * 10000) / 100;
 }
 
 function kvStatsEnabled(env) {
@@ -305,6 +388,10 @@ export class RequestStats {
 
 function dayString(date) {
   return date.toISOString().slice(0, 10);
+}
+
+function hourString(date) {
+  return date.toISOString().slice(0, 13) + ":00:00Z";
 }
 
 export class KeyPool {
@@ -490,6 +577,19 @@ function extractOMDBErrorMessage(body, contentType = "") {
   if (xmlError) return xmlError[1];
 
   return trimmed.length > 200 ? trimmed.slice(0, 200) : trimmed;
+}
+
+function isOMDBFalse(bodyBytes, contentType = "") {
+  const message = extractOMDBErrorMessage(bytesToText(bodyBytes, 1024 * 1024), contentType);
+  if (!message) return false;
+  const body = bytesToText(bodyBytes, 1024 * 1024).trim();
+  if (body.startsWith("{")) {
+    try {
+      const payload = JSON.parse(body);
+      return String(payload.Response || "").toLowerCase() === "false";
+    } catch {}
+  }
+  return /\bresponse=["']false["']/i.test(body);
 }
 
 function upstreamResponse(env, request, upstream, body, key, attempt) {

@@ -1,0 +1,17 @@
+﻿CREATE TABLE IF NOT EXISTS daily_stats (
+  day TEXT PRIMARY KEY,
+  total INTEGER NOT NULL DEFAULT 0,
+  success INTEGER NOT NULL DEFAULT 0,
+  failed INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS hourly_stats (
+  hour TEXT PRIMARY KEY,
+  total INTEGER NOT NULL DEFAULT 0,
+  success INTEGER NOT NULL DEFAULT 0,
+  failed INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_hourly_stats_hour ON hourly_stats(hour);
