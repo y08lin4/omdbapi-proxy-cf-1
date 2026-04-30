@@ -29,9 +29,9 @@ binding = "STATS_KV"
 id = "051717185a1940ab9fcac34b2a3e0c35"
 preview_id = "051717185a1940ab9fcac34b2a3e0c35"
 
-# ????? D1 ???? API ?????????????
-# ??? D1 ?????? cf/migrations/0001_stats.sql????????? database_id?
-# [[d1_databases]]
-# binding = "STATS_DB"
-# database_name = "omdbapi_proxy_stats"
-# database_id = "?? D1 database_id"
+# D1 持久化统计：每次 API 请求会在后台写入聚合统计；D1 写入失败不影响代理请求。
+# 已绑定数据库 metrics。表结构见 migrations/0001_stats.sql。
+[[d1_databases]]
+binding = "STATS_DB"
+database_name = "metrics"
+database_id = "18c60c59-00dd-4c1b-a10c-a7a841f2ff5e"
